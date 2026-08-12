@@ -165,4 +165,141 @@ function App() {
     );
   }
 
-  
+  // -------------------------
+  // SIGNUP / LOGIN
+  // -------------------------
+  return (
+    <div>
+      <h1>StudyMate AI</h1>
+
+      <p>Student Productivity Platform</p>
+
+      {!showLogin ? (
+        <>
+          <h2>Create Account</h2>
+
+          <form onSubmit={handleSignup}>
+            <div>
+              <label>Name</label>
+              <br />
+
+              <input
+                type="text"
+                placeholder="Enter your name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
+            </div>
+
+            <br />
+
+            <div>
+              <label>Email</label>
+              <br />
+
+              <input
+                type="email"
+                placeholder="Enter your email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+
+            <br />
+
+            <div>
+              <label>Password</label>
+              <br />
+
+              <input
+                type="password"
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+
+            <br />
+
+            <button type="submit" disabled={loading}>
+              {loading ? "Creating Account..." : "Sign Up"}
+            </button>
+          </form>
+
+          <br />
+
+          <button
+            onClick={() => {
+              setShowLogin(true);
+              setMessage("");
+              setError("");
+            }}
+          >
+            Already have an account? Login
+          </button>
+        </>
+      ) : (
+        <>
+          <h2>Login</h2>
+
+          <form onSubmit={handleLogin}>
+            <div>
+              <label>Email</label>
+              <br />
+
+              <input
+                type="email"
+                placeholder="Enter your email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </div>
+
+            <br />
+
+            <div>
+              <label>Password</label>
+              <br />
+
+              <input
+                type="password"
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+
+            <br />
+
+            <button type="submit" disabled={loading}>
+              {loading ? "Logging in..." : "Login"}
+            </button>
+          </form>
+
+          <br />
+
+          <button
+            onClick={() => {
+              setShowLogin(false);
+              setMessage("");
+              setError("");
+            }}
+          >
+            Don't have an account? Sign Up
+          </button>
+        </>
+      )}
+
+      {message && <p>{message}</p>}
+
+      {error && <p>{error}</p>}
+    </div>
+  );
+}
+
+export default App;
