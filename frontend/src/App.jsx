@@ -70,4 +70,99 @@ function App() {
     }
   };
 
+  // -------------------------
+  // LOGIN
+  // -------------------------
+  const handleLogin = async (e) => {
+    e.preventDefault();
+
+    setMessage("");
+    setError("");
+    setLoading(true);
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: email,
+          password: password,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Login failed");
+      }
+
+      // Save logged-in user
+      setUser(data.user);
+
+      // Open dashboard
+      setIsLoggedIn(true);
+
+      localStorage.setItem(
+        "studymate_user",
+        JSON.stringify(data.user)
+      );
+
+      setMessage("");
+      setError("");
+
+      setEmail("");
+      setPassword("");
+    } catch (error) {
+      console.error(error);
+      setError("❌ " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // -------------------------
+  // LOGOUT
+  // -------------------------
+  const handleLogout = () => {
+    localStorage.removeItem("studymate_user");
+
+    setIsLoggedIn(false);
+    setUser(null);
+    setShowLogin(true);
+    setMessage("");
+    setError("");
+  };
+
+  // -------------------------
+  // DASHBOARD
+  // -------------------------
+  if (isLoggedIn) {
+    return (
+      <div>
+        <h1>StudyMate AI</h1>
+
+        <p>Student Productivity Platform</p>
+
+        <h2>Welcome, {user?.name}! 👋</h2>
+
+        <p>You are successfully logged in.</p>
+
+        <hr />
+
+        <h3>📚 Study Dashboard</h3>
+
+        <p>Tasks: Coming Soon</p>
+        <p>📝 Notes: Coming Soon</p>
+        <p>📅 Study Planner: Coming Soon</p>
+        <p>🤖 AI Study Assistant: Coming Soon</p>
+
+        <br />
+
+        <button onClick={handleLogout}>Logout</button>
+      </div>
+    );
+  }
+
   
