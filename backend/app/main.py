@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from pwdlib import PasswordHash
@@ -7,7 +8,12 @@ from pwdlib import PasswordHash
 from .database import Base, engine, get_db
 from . import models
 from .schemas import UserCreate, TaskCreate, TaskUpdate
-from .security import hash_password
+from .security import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    verify_access_token
+)
 
 # Password hashing instance
 password_hash = PasswordHash.recommended()
@@ -20,6 +26,25 @@ app = FastAPI(
     description="Backend API for StudyMate AI",
     version="1.0.0"
 )
+
+security = HTTPBearer()
+
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+):
+    token = credentials.credentials
+
+    user_id = verify_access_token(token)
+
+    if user_id is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired token"
+        )
+
+    return user_id
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -92,7 +117,7 @@ def login(
             detail="Invalid email or password"
         )
 
-    if not password_hash.verify(
+    if not verify_password(
         data.password,
         user.password_hash
     ):
@@ -101,8 +126,17 @@ def login(
             detail="Invalid email or password"
         )
 
+    access_token = create_access_token(
+        data={
+            "sub": str(user.id),
+            "email": user.email
+        }
+    )
+
     return {
         "message": "Login successful",
+        "access_token": access_token,
+        "token_type": "bearer",
         "user": {
             "id": user.id,
             "name": user.name,
@@ -114,13 +148,14 @@ def login(
 @app.post("/tasks")
 def create_task(
     task: TaskCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
 ):
     new_task = models.Task(
         title=task.title,
         description=task.description,
         status=task.status,
-        user_id=task.user_id
+        user_id=current_user_id
     )
 
     db.add(new_task)
@@ -141,12 +176,12 @@ def create_task(
 
 @app.get("/tasks")
 def get_tasks(
-    user_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
 ):
     tasks = (
         db.query(models.Task)
-        .filter(models.Task.user_id == user_id)
+        .filter(models.Task.user_id == current_user_id)
         .all()
     )
 
@@ -168,11 +203,15 @@ def get_tasks(
 def update_task(
     task_id: int,
     task: TaskUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
 ):
     existing_task = (
         db.query(models.Task)
-        .filter(models.Task.id == task_id)
+        .filter(
+            models.Task.id == task_id,
+            models.Task.user_id == current_user_id
+        )
         .first()
     )
 
@@ -182,7 +221,14 @@ def update_task(
             detail="Task not found"
         )
 
-    existing_task.status = task.status
+    if task.title is not None:
+        existing_task.title = task.title
+
+    if task.description is not None:
+        existing_task.description = task.description
+
+    if task.status is not None:
+        existing_task.status = task.status
 
     db.commit()
     db.refresh(existing_task)
@@ -202,11 +248,15 @@ def update_task(
 @app.delete("/tasks/{task_id}")
 def delete_task(
     task_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
 ):
     existing_task = (
         db.query(models.Task)
-        .filter(models.Task.id == task_id)
+        .filter(
+            models.Task.id == task_id,
+            models.Task.user_id == current_user_id
+        )
         .first()
     )
 
