@@ -19,6 +19,13 @@ function App() {
   // Logged-in user
   const [user, setUser] = useState(null);
 
+  // Task states
+  const [tasks, setTasks] = useState([]);
+  const [taskTitle, setTaskTitle] = useState("");
+  const [taskDescription, setTaskDescription] = useState("");
+  const [taskLoading, setTaskLoading] = useState(false);
+
+  // 1. Saved user check (Pehle se moojood useEffect - ise nahi hataya gaya hai)
   useEffect(() => {
     const savedUser = localStorage.getItem("studymate_user");
 
@@ -27,6 +34,41 @@ function App() {
       setIsLoggedIn(true);
     }
   }, []);
+
+  // 2. Fetch tasks when logged in (Naya updated useEffect)
+  useEffect(() => {
+    const fetchTasks = async () => {
+      const token = localStorage.getItem("studymate_token");
+
+      if (!token) {
+        return;
+      }
+
+      try {
+        const response = await fetch("http://127.0.0.1:8000/tasks", {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.detail || "Failed to fetch tasks");
+        }
+
+        setTasks(data.tasks);
+      } catch (error) {
+        console.error(error);
+        setError("❌ " + error.message);
+      }
+    };
+
+    if (isLoggedIn) {
+      fetchTasks();
+    }
+  }, [isLoggedIn]);
 
   // -------------------------
   // SIGNUP
@@ -101,13 +143,14 @@ function App() {
       // Save logged-in user
       setUser(data.user);
 
+      // Save JWT token
+      localStorage.setItem("studymate_token", data.access_token);
+
+      // Save user information
+      localStorage.setItem("studymate_user", JSON.stringify(data.user));
+
       // Open dashboard
       setIsLoggedIn(true);
-
-      localStorage.setItem(
-        "studymate_user",
-        JSON.stringify(data.user)
-      );
 
       setMessage("");
       setError("");
@@ -123,10 +166,131 @@ function App() {
   };
 
   // -------------------------
+  // ADD TASK
+  // -------------------------
+  const handleAddTask = async (e) => {
+    e.preventDefault();
+
+    setTaskLoading(true);
+    setError("");
+    setMessage("");
+
+    const token = localStorage.getItem("studymate_token");
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/tasks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title: taskTitle,
+          description: taskDescription,
+          status: "pending",
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to create task");
+      }
+
+      setTasks((previousTasks) => [...previousTasks, data.task]);
+
+      setTaskTitle("");
+      setTaskDescription("");
+
+      setMessage("✅ Task added successfully");
+    } catch (error) {
+      console.error(error);
+      setError("❌ " + error.message);
+    } finally {
+      setTaskLoading(false);
+    }
+  };
+
+  // -------------------------
+  // UPDATE TASK
+  // -------------------------
+  const handleUpdateTask = async (taskId) => {
+    const token = localStorage.getItem("studymate_token");
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:8000/tasks/${taskId}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            status: "completed",
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to update task");
+      }
+
+      setTasks((previousTasks) =>
+        previousTasks.map((task) =>
+          task.id === taskId ? data.task : task
+        )
+      );
+
+      setMessage("✅ Task completed successfully");
+    } catch (error) {
+      console.error(error);
+      setError("❌ " + error.message);
+    }
+  };
+
+  // -------------------------
+  // DELETE TASK
+  // -------------------------
+  const handleDeleteTask = async (taskId) => {
+    const token = localStorage.getItem("studymate_token");
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:8000/tasks/${taskId}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to delete task");
+      }
+
+      setTasks((previousTasks) =>
+        previousTasks.filter((task) => task.id !== taskId)
+      );
+
+      setMessage("✅ Task deleted successfully");
+    } catch (error) {
+      console.error(error);
+      setError("❌ " + error.message);
+    }
+  };
+
+  // -------------------------
   // LOGOUT
   // -------------------------
   const handleLogout = () => {
     localStorage.removeItem("studymate_user");
+    localStorage.removeItem("studymate_token");
 
     setIsLoggedIn(false);
     setUser(null);
@@ -153,7 +317,86 @@ function App() {
 
         <h3>📚 Study Dashboard</h3>
 
-        <p>Tasks: Coming Soon</p>
+        <h3>📋 My Tasks</h3>
+
+        {/* Task Form */}
+        <form onSubmit={handleAddTask}>
+          <div>
+            <label>Task Title</label>
+            <br />
+
+            <input
+              type="text"
+              placeholder="Enter task title"
+              value={taskTitle}
+              onChange={(e) => setTaskTitle(e.target.value)}
+              required
+            />
+          </div>
+
+          <br />
+
+          <div>
+            <label>Description</label>
+            <br />
+
+            <textarea
+              placeholder="Enter task description"
+              value={taskDescription}
+              onChange={(e) => setTaskDescription(e.target.value)}
+            />
+          </div>
+
+          <br />
+
+          <button type="submit" disabled={taskLoading}>
+            {taskLoading ? "Adding Task..." : "Add Task"}
+          </button>
+        </form>
+
+        <br />
+
+        {/* Messages */}
+        {message && <p>{message}</p>}
+        {error && <p>{error}</p>}
+
+        {/* Task List */}
+        {tasks.length === 0 ? (
+          <p>No tasks added yet.</p>
+        ) : (
+          <div>
+            {tasks.map((task) => (
+              <div key={task.id}>
+                <h4>{task.title}</h4>
+
+                <p>{task.description}</p>
+
+                <p>Status: {task.status}</p>
+
+                {task.status === "pending" && (
+                  <button onClick={() => handleUpdateTask(task.id)}>
+                    ✅ Mark as Completed
+                  </button>
+                )}
+
+                {task.status === "completed" && (
+                  <p>🎉 Completed</p>
+                )}
+
+                <br />
+
+                <button onClick={() => handleDeleteTask(task.id)}>
+                  🗑️ Delete
+                </button>
+
+                <hr />
+              </div>
+            ))}
+          </div>
+        )}
+
+        <hr />
+
         <p>📝 Notes: Coming Soon</p>
         <p>📅 Study Planner: Coming Soon</p>
         <p>🤖 AI Study Assistant: Coming Soon</p>
