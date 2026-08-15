@@ -17,3 +17,13 @@ class TaskUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
     status: str | None = None
+
+
+class NoteCreate(BaseModel):
+    title: str
+    content: str
+
+
+class NoteUpdate(BaseModel):
+    title: str | None = None
+    content: str | None = None

@@ -7,7 +7,13 @@ from pwdlib import PasswordHash
 
 from .database import Base, engine, get_db
 from . import models
-from .schemas import UserCreate, TaskCreate, TaskUpdate
+from .schemas import (
+    UserCreate,
+    TaskCreate,
+    TaskUpdate,
+    NoteCreate,
+    NoteUpdate
+)
 from .security import (
     hash_password,
     verify_password,
@@ -272,4 +278,125 @@ def delete_task(
     return {
         "message": "Task deleted successfully",
         "task_id": task_id
+    }
+
+
+@app.post("/notes")
+def create_note(
+    note: NoteCreate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
+):
+    new_note = models.Note(
+        title=note.title,
+        content=note.content,
+        user_id=current_user_id
+    )
+
+    db.add(new_note)
+    db.commit()
+    db.refresh(new_note)
+
+    return {
+        "message": "Note created successfully",
+        "note": {
+            "id": new_note.id,
+            "title": new_note.title,
+            "content": new_note.content,
+            "user_id": new_note.user_id
+        }
+    }
+
+
+@app.get("/notes")
+def get_notes(
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
+):
+    notes = (
+        db.query(models.Note)
+        .filter(models.Note.user_id == current_user_id)
+        .all()
+    )
+
+    return {
+        "notes": [
+            {
+                "id": note.id,
+                "title": note.title,
+                "content": note.content,
+                "user_id": note.user_id
+            }
+            for note in notes
+        ]
+    }
+
+@app.put("/notes/{note_id}")
+def update_note(
+    note_id: int,
+    note: NoteUpdate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
+):
+    existing_note = (
+        db.query(models.Note)
+        .filter(
+            models.Note.id == note_id,
+            models.Note.user_id == current_user_id
+        )
+        .first()
+    )
+
+    if not existing_note:
+        raise HTTPException(
+            status_code=404,
+            detail="Note not found"
+        )
+
+    if note.title is not None:
+        existing_note.title = note.title
+
+    if note.content is not None:
+        existing_note.content = note.content
+
+    db.commit()
+    db.refresh(existing_note)
+
+    return {
+        "message": "Note updated successfully",
+        "note": {
+            "id": existing_note.id,
+            "title": existing_note.title,
+            "content": existing_note.content,
+            "user_id": existing_note.user_id
+        }
+    }
+
+@app.delete("/notes/{note_id}")
+def delete_note(
+    note_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
+):
+    existing_note = (
+        db.query(models.Note)
+        .filter(
+            models.Note.id == note_id,
+            models.Note.user_id == current_user_id
+        )
+        .first()
+    )
+
+    if not existing_note:
+        raise HTTPException(
+            status_code=404,
+            detail="Note not found"
+        )
+
+    db.delete(existing_note)
+    db.commit()
+
+    return {
+        "message": "Note deleted successfully",
+        "note_id": note_id
     }
