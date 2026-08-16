@@ -25,7 +25,17 @@ function App() {
   const [taskDescription, setTaskDescription] = useState("");
   const [taskLoading, setTaskLoading] = useState(false);
 
-  // 1. Saved user check (Pehle se moojood useEffect - ise nahi hataya gaya hai)
+  // Note states (Step 1)
+  const [notes, setNotes] = useState([]);
+  const [noteTitle, setNoteTitle] = useState("");
+  const [noteContent, setNoteContent] = useState("");
+  const [noteLoading, setNoteLoading] = useState(false);
+
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [editNoteTitle, setEditNoteTitle] = useState("");
+  const [editNoteContent, setEditNoteContent] = useState("");
+
+  // 1. Saved user check
   useEffect(() => {
     const savedUser = localStorage.getItem("studymate_user");
 
@@ -35,7 +45,36 @@ function App() {
     }
   }, []);
 
-  // 2. Fetch tasks when logged in (Naya updated useEffect)
+  // Step 2: FETCH NOTES Function
+  const fetchNotes = async () => {
+    const token = localStorage.getItem("studymate_token");
+
+    if (!token) {
+      return;
+    }
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/notes", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to fetch notes");
+      }
+
+      setNotes(data.notes);
+    } catch (error) {
+      console.error(error);
+      setError("❌ " + error.message);
+    }
+  };
+
+  // Step 3: Fetch Tasks and Notes when logged in
   useEffect(() => {
     const fetchTasks = async () => {
       const token = localStorage.getItem("studymate_token");
@@ -67,8 +106,142 @@ function App() {
 
     if (isLoggedIn) {
       fetchTasks();
+      fetchNotes(); // Fetching notes along with tasks
     }
   }, [isLoggedIn]);
+
+  // POST /notes function (Create Note)
+  const handleCreateNote = async (e) => {
+    e.preventDefault();
+
+    setNoteLoading(true);
+
+    try {
+      const token = localStorage.getItem("studymate_token");
+
+      if (!token) {
+        throw new Error("You are not logged in");
+      }
+
+      const response = await fetch("http://127.0.0.1:8000/notes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title: noteTitle,
+          content: noteContent,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to create note");
+      }
+
+      setNotes((previousNotes) => [...previousNotes, data.note]);
+
+      setNoteTitle("");
+      setNoteContent("");
+    } catch (error) {
+      console.error("Create note error:", error);
+      setError("❌ " + error.message);
+    } finally {
+      setNoteLoading(false);
+    }
+  };
+
+  // PUT /notes function (Edit Note)
+  const handleUpdateNote = async (e) => {
+    e.preventDefault();
+
+    try {
+      const token = localStorage.getItem("studymate_token");
+
+      if (!token) {
+        throw new Error("You are not logged in");
+      }
+
+      const response = await fetch(
+        `http://127.0.0.1:8000/notes/${editingNoteId}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            title: editNoteTitle,
+            content: editNoteContent,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to update note");
+      }
+
+      setNotes((previousNotes) =>
+        previousNotes.map((note) =>
+          note.id === editingNoteId ? data.note : note
+        )
+      );
+
+      setEditingNoteId(null);
+      setEditNoteTitle("");
+      setEditNoteContent("");
+    } catch (error) {
+      console.error("Update note error:", error);
+      setError("❌ " + error.message);
+    }
+  };
+
+  // DELETE /notes function (Delete Note)
+  const handleDeleteNote = async (noteId) => {
+    const confirmDelete = window.confirm(
+      "Are you sure you want to delete this note?"
+    );
+
+    if (!confirmDelete) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem("studymate_token");
+
+      if (!token) {
+        throw new Error("You are not logged in");
+      }
+
+      const response = await fetch(
+        `http://127.0.0.1:8000/notes/${noteId}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.detail || "Failed to delete note");
+      }
+
+      // Deleted note ko frontend list se remove karo
+      setNotes((previousNotes) =>
+        previousNotes.filter((note) => note.id !== noteId)
+      );
+    } catch (error) {
+      console.error("Delete note error:", error);
+      setError("❌ " + error.message);
+    }
+  };
 
   // -------------------------
   // SIGNUP
@@ -140,17 +313,12 @@ function App() {
         throw new Error(data.detail || "Login failed");
       }
 
-      // Save logged-in user
-      setUser(data.user);
-
-      // Save JWT token
       localStorage.setItem("studymate_token", data.access_token);
-
-      // Save user information
+      setUser(data.user);
+      setIsLoggedIn(true);
       localStorage.setItem("studymate_user", JSON.stringify(data.user));
 
-      // Open dashboard
-      setIsLoggedIn(true);
+      fetchNotes();
 
       setMessage("");
       setError("");
@@ -397,7 +565,122 @@ function App() {
 
         <hr />
 
-        <p>📝 Notes: Coming Soon</p>
+        <div>
+          <h3>📝 My Notes</h3>
+
+          <form onSubmit={handleCreateNote}>
+            <div>
+              <label>Note Title</label>
+              <br />
+
+              <input
+                type="text"
+                placeholder="Enter note title"
+                value={noteTitle}
+                onChange={(e) => setNoteTitle(e.target.value)}
+                required
+              />
+            </div>
+
+            <br />
+
+            <div>
+              <label>Note Content</label>
+              <br />
+
+              <textarea
+                placeholder="Write your note..."
+                value={noteContent}
+                onChange={(e) => setNoteContent(e.target.value)}
+                required
+              />
+            </div>
+
+            <br />
+
+            <button type="submit" disabled={noteLoading}>
+              {noteLoading ? "Creating Note..." : "Create Note"}
+            </button>
+          </form>
+
+          <br />
+
+          {notes.length === 0 ? (
+            <p>No notes available.</p>
+          ) : (
+            notes.map((note) => (
+              <div key={note.id}>
+                <h4>{note.title}</h4>
+                <p>{note.content}</p>
+
+                <button
+                  onClick={() => {
+                    setEditingNoteId(note.id);
+                    setEditNoteTitle(note.title);
+                    setEditNoteContent(note.content);
+                  }}
+                >
+                  Edit
+                </button>
+
+                <button onClick={() => handleDeleteNote(note.id)}>
+                  Delete
+                </button>
+
+                <hr />
+              </div>
+            ))
+          )}
+
+          {editingNoteId !== null && (
+            <form onSubmit={handleUpdateNote}>
+              <h3>Edit Note</h3>
+
+              <div>
+                <label>Title</label>
+                <br />
+
+                <input
+                  type="text"
+                  value={editNoteTitle}
+                  onChange={(e) => setEditNoteTitle(e.target.value)}
+                  required
+                />
+              </div>
+
+              <br />
+
+              <div>
+                <label>Content</label>
+                <br />
+
+                <textarea
+                  value={editNoteContent}
+                  onChange={(e) => setEditNoteContent(e.target.value)}
+                  required
+                />
+              </div>
+
+              <br />
+
+              <button type="submit">
+                Save Changes
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingNoteId(null);
+                  setEditNoteTitle("");
+                  setEditNoteContent("");
+                }}
+              >
+                Cancel
+              </button>
+            </form>
+          )}
+        </div>
+
         <p>📅 Study Planner: Coming Soon</p>
         <p>🤖 AI Study Assistant: Coming Soon</p>
 
