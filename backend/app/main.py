@@ -4,6 +4,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from pwdlib import PasswordHash
+from datetime import date
 
 from .database import Base, engine, get_db
 from . import models
@@ -12,7 +13,9 @@ from .schemas import (
     TaskCreate,
     TaskUpdate,
     NoteCreate,
-    NoteUpdate
+    NoteUpdate,
+    PlannerCreate,
+    PlannerUpdate
 )
 from .security import (
     hash_password,
@@ -399,4 +402,152 @@ def delete_note(
     return {
         "message": "Note deleted successfully",
         "note_id": note_id
+    }
+
+# =====================================================
+# PLANNER API
+# =====================================================
+
+@app.post("/planner")
+def create_planner(
+    planner: PlannerCreate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
+):
+    new_planner = models.Planner(
+        title=planner.title,
+        description=planner.description,
+        date=planner.date,
+        duration=planner.duration,
+        status=planner.status,
+        user_id=current_user_id
+    )
+
+    db.add(new_planner)
+    db.commit()
+    db.refresh(new_planner)
+
+    return {
+        "message": "Study plan created successfully",
+        "planner": {
+            "id": new_planner.id,
+            "title": new_planner.title,
+            "description": new_planner.description,
+            "date": new_planner.date,
+            "duration": new_planner.duration,
+            "status": new_planner.status,
+            "user_id": new_planner.user_id
+        }
+    }
+
+
+@app.get("/planner")
+def get_planners(
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
+):
+    planners = (
+        db.query(models.Planner)
+        .filter(models.Planner.user_id == current_user_id)
+        .order_by(models.Planner.date.asc())
+        .all()
+    )
+
+    return {
+        "planners": [
+            {
+                "id": planner.id,
+                "title": planner.title,
+                "description": planner.description,
+                "date": planner.date,
+                "duration": planner.duration,
+                "status": planner.status,
+                "user_id": planner.user_id
+            }
+            for planner in planners
+        ]
+    }
+
+
+@app.put("/planner/{planner_id}")
+def update_planner(
+    planner_id: int,
+    planner: PlannerUpdate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
+):
+    existing_planner = (
+        db.query(models.Planner)
+        .filter(
+            models.Planner.id == planner_id,
+            models.Planner.user_id == current_user_id
+        )
+        .first()
+    )
+
+    if not existing_planner:
+        raise HTTPException(
+            status_code=404,
+            detail="Planner item not found"
+        )
+
+    if planner.title is not None:
+        existing_planner.title = planner.title
+
+    if planner.description is not None:
+        existing_planner.description = planner.description
+
+    if planner.date is not None:
+        existing_planner.date = planner.date
+
+    if planner.duration is not None:
+        existing_planner.duration = planner.duration
+
+    if planner.status is not None:
+        existing_planner.status = planner.status
+
+    db.commit()
+    db.refresh(existing_planner)
+
+    return {
+        "message": "Study plan updated successfully",
+        "planner": {
+            "id": existing_planner.id,
+            "title": existing_planner.title,
+            "description": existing_planner.description,
+            "date": existing_planner.date,
+            "duration": existing_planner.duration,
+            "status": existing_planner.status,
+            "user_id": existing_planner.user_id
+        }
+    }
+
+
+@app.delete("/planner/{planner_id}")
+def delete_planner(
+    planner_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
+):
+    existing_planner = (
+        db.query(models.Planner)
+        .filter(
+            models.Planner.id == planner_id,
+            models.Planner.user_id == current_user_id
+        )
+        .first()
+    )
+
+    if not existing_planner:
+        raise HTTPException(
+            status_code=404,
+            detail="Planner item not found"
+        )
+
+    db.delete(existing_planner)
+    db.commit()
+
+    return {
+        "message": "Study plan deleted successfully",
+        "planner_id": planner_id
     }

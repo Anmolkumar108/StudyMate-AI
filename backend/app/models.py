@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, Date
 from .database import Base
 
 
@@ -27,4 +27,15 @@ class Note(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String, nullable=False)
     content = Column(String, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+class Planner(Base):
+    __tablename__ = "planner"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    date = Column(Date, nullable=False)
+    duration = Column(Integer, nullable=False)
+    status = Column(String, default="pending")
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)

@@ -1,4 +1,5 @@
 from pydantic import BaseModel, EmailStr
+from datetime import date as Date
 
 
 class UserCreate(BaseModel):
@@ -27,3 +28,21 @@ class NoteCreate(BaseModel):
 class NoteUpdate(BaseModel):
     title: str | None = None
     content: str | None = None
+
+
+# Planner Schemas
+
+class PlannerCreate(BaseModel):
+    title: str
+    description: str | None = None
+    date: Date
+    duration: int
+    status: str = "pending"
+
+
+class PlannerUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    date: Date | None = None
+    duration: int | None = None
+    status: str | None = None
