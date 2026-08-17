@@ -46,3 +46,12 @@ class PlannerUpdate(BaseModel):
     date: Date | None = None
     duration: int | None = None
     status: str | None = None
+
+
+class UserUpdate(BaseModel):
+    name: str | None = None
+    email: EmailStr | None = None
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str

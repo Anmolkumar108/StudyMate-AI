@@ -10,6 +10,8 @@ from .database import Base, engine, get_db
 from . import models
 from .schemas import (
     UserCreate,
+    UserUpdate,
+    PasswordChange,
     TaskCreate,
     TaskUpdate,
     NoteCreate,
@@ -550,4 +552,118 @@ def delete_planner(
     return {
         "message": "Study plan deleted successfully",
         "planner_id": planner_id
+    }
+
+@app.get("/me")
+def get_current_user_info(
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
+):
+    user = (
+        db.query(models.User)
+        .filter(models.User.id == current_user_id)
+        .first()
+    )
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    return {
+        "id": user.id,
+        "name": user.name,
+        "email": user.email
+    }
+@app.put("/me")
+def update_profile(
+    user_data: UserUpdate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
+):
+    user = (
+        db.query(models.User)
+        .filter(models.User.id == current_user_id)
+        .first()
+    )
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    if user_data.name is not None:
+        user.name = user_data.name
+
+    if user_data.email is not None:
+        existing_user = (
+            db.query(models.User)
+            .filter(
+                models.User.email == user_data.email,
+                models.User.id != current_user_id
+            )
+            .first()
+        )
+
+        if existing_user:
+            raise HTTPException(
+                status_code=400,
+                detail="Email already registered"
+            )
+
+        user.email = user_data.email
+
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "message": "Profile updated successfully",
+        "user": {
+            "id": user.id,
+            "name": user.name,
+            "email": user.email
+        }
+    }
+
+@app.put("/change-password")
+def change_password(
+    data: PasswordChange,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
+):
+    user = (
+        db.query(models.User)
+        .filter(models.User.id == current_user_id)
+        .first()
+    )
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    if not verify_password(
+        data.current_password,
+        user.password_hash
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Current password is incorrect"
+        )
+
+    if data.current_password == data.new_password:
+        raise HTTPException(
+            status_code=400,
+            detail="New password must be different"
+        )
+
+    user.password_hash = hash_password(data.new_password)
+
+    db.commit()
+
+    return {
+        "message": "Password changed successfully"
     }
