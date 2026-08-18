@@ -1,11 +1,11 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from datetime import date as Date
 
 
 class UserCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=2, max_length=50)
     email: EmailStr
-    password: str
+    password: str = Field(min_length=8, max_length=128)
 
 
 class TaskCreate(BaseModel):
@@ -49,9 +49,16 @@ class PlannerUpdate(BaseModel):
 
 
 class UserUpdate(BaseModel):
-    name: str | None = None
+    name: str | None = Field(default=None, min_length=2, max_length=50)
     email: EmailStr | None = None
 
 class PasswordChange(BaseModel):
     current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
     new_password: str

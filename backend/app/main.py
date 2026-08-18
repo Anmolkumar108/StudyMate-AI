@@ -4,7 +4,8 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from pwdlib import PasswordHash
-from datetime import date
+import secrets
+from datetime import date, datetime, timedelta
 
 from .database import Base, engine, get_db
 from . import models
@@ -12,6 +13,8 @@ from .schemas import (
     UserCreate,
     UserUpdate,
     PasswordChange,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
     TaskCreate,
     TaskUpdate,
     NoteCreate,
@@ -26,11 +29,24 @@ from .security import (
     verify_access_token
 )
 
-# Password hashing instance
+
+# =====================================================
+# PASSWORD HASHING
+# =====================================================
+
 password_hash = PasswordHash.recommended()
 
-# Database tables creation
+
+# =====================================================
+# DATABASE TABLE CREATION
+# =====================================================
+
 Base.metadata.create_all(bind=engine)
+
+
+# =====================================================
+# FASTAPI APP
+# =====================================================
 
 app = FastAPI(
     title="StudyMate AI API",
@@ -38,8 +54,13 @@ app = FastAPI(
     version="1.0.0"
 )
 
+
 security = HTTPBearer()
 
+
+# =====================================================
+# CURRENT USER
+# =====================================================
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security)
@@ -57,6 +78,10 @@ def get_current_user(
     return user_id
 
 
+# =====================================================
+# CORS
+# =====================================================
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -66,11 +91,18 @@ app.add_middleware(
 )
 
 
-# Login Request Model
+# =====================================================
+# LOGIN REQUEST MODEL
+# =====================================================
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
 
+
+# =====================================================
+# HOME
+# =====================================================
 
 @app.get("/")
 def home():
@@ -79,8 +111,15 @@ def home():
     }
 
 
+# =====================================================
+# SIGNUP
+# =====================================================
+
 @app.post("/signup")
-def signup(user: UserCreate, db: Session = Depends(get_db)):
+def signup(
+    user: UserCreate,
+    db: Session = Depends(get_db)
+):
     existing_user = (
         db.query(models.User)
         .filter(models.User.email == user.email)
@@ -113,14 +152,20 @@ def signup(user: UserCreate, db: Session = Depends(get_db)):
     }
 
 
+# =====================================================
+# LOGIN
+# =====================================================
+
 @app.post("/login")
 def login(
     data: LoginRequest,
     db: Session = Depends(get_db)
 ):
-    user = db.query(models.User).filter(
-        models.User.email == data.email
-    ).first()
+    user = (
+        db.query(models.User)
+        .filter(models.User.email == data.email)
+        .first()
+    )
 
     if not user:
         raise HTTPException(
@@ -155,6 +200,10 @@ def login(
         }
     }
 
+
+# =====================================================
+# TASK API
+# =====================================================
 
 @app.post("/tasks")
 def create_task(
@@ -286,6 +335,10 @@ def delete_task(
     }
 
 
+# =====================================================
+# NOTES API
+# =====================================================
+
 @app.post("/notes")
 def create_note(
     note: NoteCreate,
@@ -336,6 +389,7 @@ def get_notes(
         ]
     }
 
+
 @app.put("/notes/{note_id}")
 def update_note(
     note_id: int,
@@ -377,6 +431,7 @@ def update_note(
         }
     }
 
+
 @app.delete("/notes/{note_id}")
 def delete_note(
     note_id: int,
@@ -405,6 +460,7 @@ def delete_note(
         "message": "Note deleted successfully",
         "note_id": note_id
     }
+
 
 # =====================================================
 # PLANNER API
@@ -554,6 +610,11 @@ def delete_planner(
         "planner_id": planner_id
     }
 
+
+# =====================================================
+# USER PROFILE
+# =====================================================
+
 @app.get("/me")
 def get_current_user_info(
     db: Session = Depends(get_db),
@@ -576,6 +637,8 @@ def get_current_user_info(
         "name": user.name,
         "email": user.email
     }
+
+
 @app.put("/me")
 def update_profile(
     user_data: UserUpdate,
@@ -627,6 +690,11 @@ def update_profile(
         }
     }
 
+
+# =====================================================
+# CHANGE PASSWORD
+# =====================================================
+
 @app.put("/change-password")
 def change_password(
     data: PasswordChange,
@@ -667,3 +735,105 @@ def change_password(
     return {
         "message": "Password changed successfully"
     }
+
+
+# =====================================================
+# FORGOT PASSWORD
+# =====================================================
+
+@app.post("/forgot-password")
+def forgot_password(
+    data: ForgotPasswordRequest,
+    db: Session = Depends(get_db)
+):
+    user = (
+        db.query(models.User)
+        .filter(models.User.email == data.email)
+        .first()
+    )
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    token = secrets.token_urlsafe(32)
+
+    # SQLite DateTime normally stores this as a naive datetime.
+    # Therefore we intentionally use UTC without timezone information.
+    expires_at = datetime.utcnow() + timedelta(minutes=15)
+
+    reset_token = models.PasswordResetToken(
+        token=token,
+        user_id=user.id,
+        expires_at=expires_at,
+        used=False
+    )
+
+    db.add(reset_token)
+    db.commit()
+    db.refresh(reset_token)
+
+    return {
+        "message": "Password reset token created",
+        "reset_token": token,
+        "expires_in_minutes": 15
+    }
+
+
+# =====================================================
+# RESET PASSWORD
+# =====================================================
+
+@app.post("/reset-password")
+def reset_password(
+    data: ResetPasswordRequest,
+    db: Session = Depends(get_db)
+):
+    reset_token = (
+        db.query(models.PasswordResetToken)
+        .filter(
+            models.PasswordResetToken.token == data.token,
+            models.PasswordResetToken.used == False
+        )
+        .first()
+    )
+
+    if not reset_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or already used reset token"
+        )
+
+    # IMPORTANT:
+    # expires_at is stored as a naive datetime in SQLite.
+    # So compare it with datetime.utcnow(), not datetime.now(timezone.utc).
+    if reset_token.expires_at < datetime.utcnow():
+        raise HTTPException(
+            status_code=400,
+            detail="Reset token has expired"
+        )
+
+    user = (
+        db.query(models.User)
+        .filter(models.User.id == reset_token.user_id)
+        .first()
+    )
+
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    user.password_hash = hash_password(data.new_password)
+
+    reset_token.used = True
+
+    db.commit()
+
+    return {
+        "message": "Password reset successfully"
+    }
+
