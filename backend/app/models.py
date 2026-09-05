@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Date, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, ForeignKey, Date, DateTime, Boolean, func
 from .database import Base
 
 
@@ -47,3 +47,62 @@ class Planner(Base):
     duration = Column(Integer, nullable=False)
     status = Column(String, default="pending")
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+class Subject(Base):
+    __tablename__ = "subjects"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    name = Column(String, nullable=False)
+
+    description = Column(String, nullable=True)
+
+    color = Column(String, nullable=True)
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True
+    )
+
+class Document(Base):
+    __tablename__ = "documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    title = Column(String, nullable=False)
+
+    file_name = Column(String, nullable=False)
+
+    file_path = Column(String, nullable=False)
+
+    file_type = Column(String, nullable=False)
+
+    file_size = Column(Integer, nullable=False)
+
+    subject_id = Column(
+        Integer,
+        ForeignKey("subjects.id"),
+        nullable=False,
+        index=True
+    )
+
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )

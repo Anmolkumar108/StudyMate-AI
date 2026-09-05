@@ -62,3 +62,39 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str
+
+class SubjectCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    description: str | None = Field(
+        default=None,
+        max_length=500
+    )
+    color: str | None = Field(
+        default=None,
+        max_length=20
+    )
+
+
+class SubjectUpdate(BaseModel):
+    name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100
+    )
+    description: str | None = Field(
+        default=None,
+        max_length=500
+    )
+    color: str | None = Field(
+        default=None,
+        max_length=20
+    )
+
+class DocumentUpdate(BaseModel):
+    title: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=200
+    )
+
+    subject_id: int | None = None

@@ -1,11 +1,16 @@
-from fastapi import FastAPI, Depends, HTTPException
+import os
+import uuid
+from pathlib import Path
+from datetime import date, datetime, timedelta
+import secrets
+
+from fastapi import FastAPI, Depends, HTTPException, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from pwdlib import PasswordHash
-import secrets
-from datetime import date, datetime, timedelta
 
 from .database import Base, engine, get_db
 from . import models
@@ -20,8 +25,12 @@ from .schemas import (
     NoteCreate,
     NoteUpdate,
     PlannerCreate,
-    PlannerUpdate
+    PlannerUpdate,
+    SubjectCreate,
+    SubjectUpdate,
+    DocumentUpdate
 )
+
 from .security import (
     hash_password,
     verify_password,
@@ -56,6 +65,20 @@ app = FastAPI(
 
 
 security = HTTPBearer()
+
+
+# =====================================================
+# UPLOAD CONFIGURATION
+# =====================================================
+
+UPLOAD_DIR = Path("uploads/documents")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+ALLOWED_EXTENSIONS = {
+    ".pdf",
+    ".docx",
+    ".txt",
+}
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 # =====================================================
@@ -612,6 +635,458 @@ def delete_planner(
 
 
 # =====================================================
+# SUBJECT API
+# =====================================================
+
+@app.post("/subjects")
+def create_subject(
+    subject: SubjectCreate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
+):
+    new_subject = models.Subject(
+        name=subject.name,
+        description=subject.description,
+        color=subject.color,
+        user_id=current_user_id
+    )
+
+    db.add(new_subject)
+    db.commit()
+    db.refresh(new_subject)
+
+    return {
+        "message": "Subject created successfully",
+        "subject": {
+            "id": new_subject.id,
+            "name": new_subject.name,
+            "description": new_subject.description,
+            "color": new_subject.color,
+            "created_at": new_subject.created_at,
+        }
+    }
+
+
+@app.get("/subjects")
+def get_subjects(
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
+):
+    subjects = (
+        db.query(models.Subject)
+        .filter(models.Subject.user_id == current_user_id)
+        .order_by(models.Subject.created_at.desc())
+        .all()
+    )
+
+    return subjects
+
+
+@app.get("/subjects/{subject_id}")
+def get_subject(
+    subject_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
+):
+    subject = (
+        db.query(models.Subject)
+        .filter(
+            models.Subject.id == subject_id,
+            models.Subject.user_id == current_user_id
+        )
+        .first()
+    )
+
+    if not subject:
+        raise HTTPException(
+            status_code=404,
+            detail="Subject not found"
+        )
+
+    return subject
+
+
+@app.put("/subjects/{subject_id}")
+def update_subject(
+    subject_id: int,
+    subject_data: SubjectUpdate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
+):
+    subject = (
+        db.query(models.Subject)
+        .filter(
+            models.Subject.id == subject_id,
+            models.Subject.user_id == current_user_id
+        )
+        .first()
+    )
+
+    if not subject:
+        raise HTTPException(
+            status_code=404,
+            detail="Subject not found"
+        )
+
+    update_data = subject_data.model_dump(
+        exclude_unset=True
+    )
+
+    for key, value in update_data.items():
+        setattr(subject, key, value)
+
+    db.commit()
+    db.refresh(subject)
+
+    return {
+        "message": "Subject updated successfully",
+        "subject": subject
+    }
+
+
+@app.delete("/subjects/{subject_id}")
+def delete_subject(
+    subject_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user)
+):
+    subject = (
+        db.query(models.Subject)
+        .filter(
+            models.Subject.id == subject_id,
+            models.Subject.user_id == current_user_id
+        )
+        .first()
+    )
+
+    if not subject:
+        raise HTTPException(
+            status_code=404,
+            detail="Subject not found"
+        )
+
+    db.delete(subject)
+    db.commit()
+
+    return {
+        "message": "Subject deleted successfully"
+    }
+
+
+# =====================================================
+# DOCUMENT API
+# =====================================================
+
+@app.post("/documents")
+def upload_document(
+    title: str | None = Form(default=None),
+    subject_id: int = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user),
+):
+    # Check subject ownership
+    subject = (
+        db.query(models.Subject)
+        .filter(
+            models.Subject.id == subject_id,
+            models.Subject.user_id == current_user_id
+        )
+        .first()
+    )
+
+    if not subject:
+        raise HTTPException(
+            status_code=404,
+            detail="Subject not found"
+        )
+
+    original_filename = file.filename or ""
+
+    extension = Path(original_filename).suffix.lower()
+
+    if extension not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file type. Allowed: PDF, DOCX, TXT"
+        )
+
+    generated_filename = f"{uuid.uuid4()}{extension}"
+    file_path = UPLOAD_DIR / generated_filename
+
+    total_size = 0
+
+    try:
+        with open(file_path, "wb") as buffer:
+            while True:
+                chunk = file.file.read(1024 * 1024)
+
+                if not chunk:
+                    break
+
+                total_size += len(chunk)
+
+                if total_size > MAX_FILE_SIZE:
+                    buffer.close()
+
+                    if file_path.exists():
+                        file_path.unlink()
+
+                    raise HTTPException(
+                        status_code=400,
+                        detail="File size cannot exceed 10 MB"
+                    )
+
+                buffer.write(chunk)
+
+    except HTTPException:
+        raise
+
+    except Exception:
+        if file_path.exists():
+            file_path.unlink()
+
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to save document"
+        )
+
+    document_title = (
+        title.strip()
+        if title and title.strip()
+        else Path(original_filename).stem
+    )
+
+    document = models.Document(
+        title=document_title,
+        file_name=original_filename,
+        file_path=str(file_path),
+        file_type=extension,
+        file_size=total_size,
+        subject_id=subject_id,
+        user_id=current_user_id,
+    )
+
+    db.add(document)
+    db.commit()
+    db.refresh(document)
+
+    return {
+        "message": "Document uploaded successfully",
+        "document": {
+            "id": document.id,
+            "title": document.title,
+            "file_name": document.file_name,
+            "file_type": document.file_type,
+            "file_size": document.file_size,
+            "subject_id": document.subject_id,
+            "created_at": document.created_at,
+        }
+    }
+
+
+@app.get("/documents")
+def get_documents(
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user),
+):
+    documents = (
+        db.query(models.Document)
+        .filter(
+            models.Document.user_id == current_user_id
+        )
+        .order_by(models.Document.created_at.desc())
+        .all()
+    )
+
+    return [
+        {
+            "id": document.id,
+            "title": document.title,
+            "file_name": document.file_name,
+            "file_type": document.file_type,
+            "file_size": document.file_size,
+            "subject_id": document.subject_id,
+            "created_at": document.created_at,
+        }
+        for document in documents
+    ]
+
+
+@app.get("/documents/{document_id}")
+def get_document(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user),
+):
+    document = (
+        db.query(models.Document)
+        .filter(
+            models.Document.id == document_id,
+            models.Document.user_id == current_user_id
+        )
+        .first()
+    )
+
+    if not document:
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found"
+        )
+
+    return {
+        "id": document.id,
+        "title": document.title,
+        "file_name": document.file_name,
+        "file_type": document.file_type,
+        "file_size": document.file_size,
+        "subject_id": document.subject_id,
+        "created_at": document.created_at,
+    }
+
+
+@app.put("/documents/{document_id}")
+def update_document(
+    document_id: int,
+    document_data: DocumentUpdate,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user),
+):
+    document = (
+        db.query(models.Document)
+        .filter(
+            models.Document.id == document_id,
+            models.Document.user_id == current_user_id
+        )
+        .first()
+    )
+
+    if not document:
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found"
+        )
+
+    update_data = document_data.model_dump(
+        exclude_unset=True
+    )
+
+    if "subject_id" in update_data:
+        subject = (
+            db.query(models.Subject)
+            .filter(
+                models.Subject.id == update_data["subject_id"],
+                models.Subject.user_id == current_user_id
+            )
+            .first()
+        )
+
+        if not subject:
+            raise HTTPException(
+                status_code=404,
+                detail="Subject not found"
+            )
+
+    for key, value in update_data.items():
+        if key == "title" and value is not None:
+            value = value.strip()
+
+            if not value:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Title cannot be empty"
+                )
+
+        setattr(document, key, value)
+
+    db.commit()
+    db.refresh(document)
+
+    return {
+        "message": "Document updated successfully",
+        "document": {
+            "id": document.id,
+            "title": document.title,
+            "file_name": document.file_name,
+            "file_type": document.file_type,
+            "file_size": document.file_size,
+            "subject_id": document.subject_id,
+            "created_at": document.created_at,
+        }
+    }
+
+
+@app.get("/documents/{document_id}/download")
+def download_document(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user),
+):
+    document = (
+        db.query(models.Document)
+        .filter(
+            models.Document.id == document_id,
+            models.Document.user_id == current_user_id
+        )
+        .first()
+    )
+
+    if not document:
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found"
+        )
+
+    file_path = Path(document.file_path)
+
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Document file not found"
+        )
+
+    return FileResponse(
+        path=file_path,
+        filename=document.file_name,
+        media_type="application/octet-stream"
+    )
+
+
+@app.delete("/documents/{document_id}")
+def delete_document(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user_id: int = Depends(get_current_user),
+):
+    document = (
+        db.query(models.Document)
+        .filter(
+            models.Document.id == document_id,
+            models.Document.user_id == current_user_id
+        )
+        .first()
+    )
+
+    if not document:
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found"
+        )
+
+    file_path = Path(document.file_path)
+
+    if file_path.exists():
+        file_path.unlink()
+
+    db.delete(document)
+    db.commit()
+
+    return {
+        "message": "Document deleted successfully"
+    }
+
+
+# =====================================================
 # USER PROFILE
 # =====================================================
 
@@ -836,4 +1311,3 @@ def reset_password(
     return {
         "message": "Password reset successfully"
     }
-
